@@ -1,37 +1,18 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-from sklearn.ensemble import IsolationForest
-import matplotlib.pyplot as plt
-
-# Streamlit Page Setup
-st.set_page_config(page_title="Market Anomaly Detector", page_icon="📊", layout="wide")
-st.title("📊 Market Anomaly Detector")
-st.write("Detect anomalies in **stock/crypto market data** using AI (Isolation Forest).")
-
-# Sidebar settings
-st.sidebar.header("⚙️ Settings")
-contamination = st.sidebar.slider(
-    "Anomaly Sensitivity (contamination)", 0.01, 0.5, 0.1, 0.01
-)
-period = st.sidebar.selectbox("Select Period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"])
-interval = st.sidebar.selectbox("Select Interval", ["1d", "1wk", "1mo"])
-
-# User input for ticker
-st.subheader("📥 Fetch Market Data")
-ticker = st.text_input(
-    "Enter Stock/Crypto Ticker (e.g., AAPL, TSLA, BTC-USD, RELIANCE.NS)", "AAPL"
-)
-
 if st.button("Fetch Data"):
     try:
         # Fetch data from Yahoo Finance
         df = yf.download(ticker, period=period, interval=interval)
+
+        # Fallback if empty
+        if df.empty:
+            st.warning("⚠️ No data found with period. Retrying with fixed start/end dates...")
+            df = yf.download(ticker, start="2023-01-01", end="2025-01-01", interval=interval)
+
         df = df.reset_index()
         df = df.rename(columns={"Date": "date", "Close": "value"})
 
         if df.empty:
-            st.error("⚠️ No data found. Try another ticker or period.")
+            st.error("⚠️ Still no data found. Try another ticker.")
         else:
             # Apply anomaly detection
             model = IsolationForest(contamination=contamination, random_state=42)
