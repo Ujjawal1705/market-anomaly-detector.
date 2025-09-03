@@ -1,48 +1,69 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import IsolationForest
 import streamlit as st
+import pandas as pd
+import yfinance as yf
+from sklearn.ensemble import IsolationForest
+import matplotlib.pyplot as plt
 
-# ------------------------------
-# Streamlit UI
-# ------------------------------
+# Streamlit Page Setup
+st.set_page_config(page_title="Market Anomaly Detector", page_icon="📊", layout="wide")
 st.title("📊 Market Anomaly Detector")
-st.write("Upload a CSV file with **date** and **value** columns to detect anomalies.")
+st.write("Detect anomalies in **stock/crypto market data** using AI (Isolation Forest).")
 
-# File uploader
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+# Sidebar settings
+st.sidebar.header("⚙️ Settings")
+contamination = st.sidebar.slider(
+    "Anomaly Sensitivity (contamination)", 0.01, 0.5, 0.1, 0.01
+)
+period = st.sidebar.selectbox("Select Period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"])
+interval = st.sidebar.selectbox("Select Interval", ["1d", "1wk", "1mo"])
 
-if uploaded_file is not None:
-    # Load data
-    data = pd.read_csv(uploaded_file)
+# User input for ticker
+st.subheader("📥 Fetch Market Data")
+ticker = st.text_input(
+    "Enter Stock/Crypto Ticker (e.g., AAPL, TSLA, BTC-USD, RELIANCE.NS)", "AAPL"
+)
 
-    st.subheader("Raw Data")
-    st.write(data.head())
+if st.button("Fetch Data"):
+    try:
+        # Fetch data from Yahoo Finance
+        df = yf.download(ticker, period=period, interval=interval)
+        df = df.reset_index()
+        df = df.rename(columns={"Date": "date", "Close": "value"})
 
-    if "date" in data.columns and "value" in data.columns:
-        # Convert date
-        data["date"] = pd.to_datetime(data["date"])
+        if df.empty:
+            st.error("⚠️ No data found. Try another ticker or period.")
+        else:
+            # Apply anomaly detection
+            model = IsolationForest(contamination=contamination, random_state=42)
+            df["anomaly"] = model.fit_predict(df[["value"]])
+            anomalies = df[df["anomaly"] == -1]
 
-        # Model for anomaly detection
-        model = IsolationForest(contamination=0.1, random_state=42)
-        data["anomaly"] = model.fit_predict(data[["value"]])
+            # Show raw data
+            st.subheader("📊 Raw Data")
+            st.dataframe(df[["date", "value"]])
 
-        # Mark anomalies
-        anomalies = data[data["anomaly"] == -1]
+            # Show anomalies
+            st.subheader("🚨 Detected Anomalies")
+            st.write(f"Found **{len(anomalies)} anomalies** out of {len(df)} records.")
+            st.dataframe(anomalies[["date", "value"]])
 
-        st.subheader("Detected Anomalies")
-        st.write(anomalies)
+            # Plot results
+            st.subheader("📈 Visualization")
+            fig, ax = plt.subplots()
+            ax.plot(df["date"], df["value"], label="Market Value", color="blue")
+            ax.scatter(anomalies["date"], anomalies["value"], color="red", label="Anomalies")
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Value")
+            ax.legend()
+            st.pyplot(fig)
 
-        # Plot
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.lineplot(x="date", y="value", data=data, ax=ax, label="Normal")
-        sns.scatterplot(x="date", y="value", data=anomalies, ax=ax, color="red", label="Anomaly")
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-
-    else:
-        st.error("CSV must have 'date' and 'value' columns.")
-else:
-    st.info("Please upload a CSV file to continue.")
+            # Download anomalies
+            csv = anomalies.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Anomalies CSV",
+                data=csv,
+                file_name=f"{ticker}_anomalies.csv",
+                mime="text/csv",
+            )
+    except Exception as e:
+        st.error(f"❌ Error fetching data: {e}")
